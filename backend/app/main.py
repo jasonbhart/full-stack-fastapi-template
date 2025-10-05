@@ -1,3 +1,5 @@
+import logging
+
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
@@ -5,6 +7,17 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.core.config import settings
+
+# Filter to suppress specific passlib bcrypt version warning
+# passlib.handlers.bcrypt tries to read bcrypt.__about__.__version__ which was removed in bcrypt 4.1.0+
+# This doesn't affect functionality, just creates noise in logs
+class PasslibBcryptVersionFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Suppress only the specific "(trapped) error reading bcrypt version" warning
+        return "(trapped) error reading bcrypt version" not in record.getMessage()
+
+
+logging.getLogger("passlib.handlers.bcrypt").addFilter(PasslibBcryptVersionFilter())
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
