@@ -1,6 +1,9 @@
 import uuid
+from datetime import datetime
+from typing import Any
 
 from pydantic import EmailStr
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -111,3 +114,85 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=40)
+
+
+# Agent Run and Evaluation Models
+class AgentRun(SQLModel, table=True):
+    """Stores execution metadata for agent runs.
+
+    Attributes:
+        id: Unique identifier for the run
+        user_id: Foreign key to the user who initiated the run
+        input: The input/prompt provided to the agent
+        output: The generated output from the agent
+        status: Execution status (pending, running, completed, failed)
+        latency_ms: Total execution time in milliseconds
+        prompt_tokens: Number of tokens in the input prompt
+        completion_tokens: Number of tokens in the completion
+        trace_id: Langfuse trace ID for observability correlation
+        thread_id: LangGraph thread ID for conversation tracking
+        created_at: Timestamp when the run was created
+    """
+
+    __tablename__ = "agentrun"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id",
+        nullable=False,
+        index=True,
+        ondelete="CASCADE",
+    )
+    input: str = Field(nullable=False)
+    output: str | None = Field(default=None)
+    status: str = Field(default="pending", max_length=50, index=True)
+    latency_ms: int | None = Field(default=None)
+    prompt_tokens: int | None = Field(default=None)
+    completion_tokens: int | None = Field(default=None)
+    trace_id: str | None = Field(default=None, max_length=255, index=True)
+    thread_id: str | None = Field(default=None, max_length=255, index=True)
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+
+    # Relationships
+    evaluations: list["AgentEvaluation"] = Relationship(
+        back_populates="run",
+        cascade_delete=True,
+    )
+
+
+class AgentEvaluation(SQLModel, table=True):
+    """Stores evaluation metrics for agent runs.
+
+    Attributes:
+        id: Unique identifier for the evaluation
+        run_id: Foreign key to the associated agent run
+        metric_name: Name of the evaluation metric
+        score: Numerical score for the metric
+        eval_metadata: Additional evaluation data stored as JSON
+        created_at: Timestamp when the evaluation was created
+    """
+
+    __tablename__ = "agentevaluation"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    run_id: uuid.UUID = Field(
+        foreign_key="agentrun.id",
+        nullable=False,
+        index=True,
+        ondelete="CASCADE",
+    )
+    metric_name: str = Field(nullable=False, max_length=255, index=True)
+    score: float = Field(nullable=False)
+    eval_metadata: Any = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+
+    # Relationships
+    run: AgentRun | None = Relationship(back_populates="evaluations")

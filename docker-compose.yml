@@ -85,6 +85,8 @@ services:
       db:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_healthy
       prestart:
         condition: service_completed_successfully
     env_file:
@@ -106,6 +108,8 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - SENTRY_DSN=${SENTRY_DSN}
 
     healthcheck:
@@ -162,8 +166,155 @@ services:
 
       # Enable redirection for HTTP and HTTPS
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: >
+      sh -c "
+      if [ -n \"$$REDIS_PASSWORD\" ]; then
+        exec redis-server --requirepass \"$$REDIS_PASSWORD\" --maxmemory 256mb --maxmemory-policy allkeys-lru
+      else
+        exec redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+      fi
+      "
+    healthcheck:
+      test: >
+        sh -c "
+        if [ -n \"$$REDIS_PASSWORD\" ]; then
+          redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG
+        else
+          redis-cli ping | grep PONG
+        fi
+        "
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    networks:
+      - default
+
+  langfuse-db:
+    image: postgres:17
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data/pgdata
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${LANGFUSE_DB_PASSWORD:-langfuse}
+      - POSTGRES_DB=langfuse
+    networks:
+      - default
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    restart: always
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://postgres:${LANGFUSE_DB_PASSWORD:-langfuse}@langfuse-db:5432/langfuse
+      - NEXTAUTH_SECRET=${SECRET_KEY?Variable not set}
+      - SALT=${SECRET_KEY?Variable not set}
+      - NEXTAUTH_URL=https://langfuse.${DOMAIN?Variable not set}
+      - TELEMETRY_ENABLED=false
+      - LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES=false
+    networks:
+      - traefik-public
+      - default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.routers.${STACK_NAME?Variable not set}-langfuse-http.rule=Host(`langfuse.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-langfuse-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-langfuse-http.middlewares=https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-langfuse-https.rule=Host(`langfuse.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-langfuse-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-langfuse-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-langfuse-https.tls.certresolver=le
+      - traefik.http.services.${STACK_NAME?Variable not set}-langfuse.loadbalancer.server.port=3000
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+    volumes:
+      - ./deployment/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - traefik-public
+      - default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-http.rule=Host(`prometheus.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-http.middlewares=https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-https.rule=Host(`prometheus.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-https.tls.certresolver=le
+      - traefik.http.routers.${STACK_NAME?Variable not set}-prometheus-https.middlewares=admin-auth
+      - traefik.http.services.${STACK_NAME?Variable not set}-prometheus.loadbalancer.server.port=9090
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deployment/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deployment/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      # SECURITY: .env defaults are safe ONLY for localhost development
+      # For production: Override these via environment variables in CI/CD
+      # Example: export GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 32)
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER must be set to a non-empty value}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set to a non-empty value}
+      - GF_SERVER_ROOT_URL=https://grafana.${DOMAIN?Variable not set}
+      - GF_INSTALL_PLUGINS=
+    networks:
+      - traefik-public
+      - default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+      - traefik.http.routers.${STACK_NAME?Variable not set}-grafana-http.rule=Host(`grafana.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-grafana-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-grafana-http.middlewares=https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-grafana-https.rule=Host(`grafana.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-grafana-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-grafana-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-grafana-https.tls.certresolver=le
+      - traefik.http.services.${STACK_NAME?Variable not set}-grafana.loadbalancer.server.port=3000
+
 volumes:
   app-db-data:
+  redis-data:
+  langfuse-db-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   traefik-public:

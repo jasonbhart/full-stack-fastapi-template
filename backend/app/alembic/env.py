@@ -21,6 +21,14 @@ fileConfig(config.config_file_name)
 from app.models import SQLModel  # noqa
 from app.core.config import settings # noqa
 
+# Import all models so Alembic can detect them for autogenerate
+from app.models import (  # noqa
+    User,
+    Item,
+    AgentRun,
+    AgentEvaluation,
+)
+
 target_metadata = SQLModel.metadata
 
 # other values from the config, defined by the needs of env.py,

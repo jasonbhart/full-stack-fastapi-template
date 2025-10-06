@@ -21,7 +21,23 @@ dependencies = [
     "pydantic-settings<3.0.0,>=2.2.1",
     "sentry-sdk[fastapi]<2.0.0,>=1.40.6",
     "pyjwt<3.0.0,>=2.8.0",
+    "langchain-core>=0.3.78",
+    "langgraph>=0.6.8",
+    "langchain-openai>=0.3.34",
+    "langgraph-checkpoint-postgres>=2.0.24",
+    "prometheus-client>=0.19.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "python-json-logger>=2.0.7",
+    "redis>=5.0.0",
+    "fastapi-limiter>=0.1.6",
+    "langfuse>=2.0.0",
+    "openai>=1.0.0",
+    "colorama>=0.4.6",
+    "tqdm>=4.66.0",
 ]
+
+[project.scripts]
+eval = "app.evaluation.cli:main"
 
 [tool.uv]
 dev-dependencies = [
@@ -31,6 +47,9 @@ dev-dependencies = [
     "pre-commit<4.0.0,>=3.6.2",
     "types-passlib<2.0.0.0,>=1.7.7.20240106",
     "coverage<8.0.0,>=7.4.3",
+    "types-colorama>=0.4.15",
+    "types-tqdm>=4.66.0",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [build-system]
@@ -64,6 +83,9 @@ ignore = [
     "B904",  # Allow raising exceptions without from e, for HTTPException
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"app/evaluation/cli.py" = ["T201"]  # Allow print statements in CLI scripts
+
 [tool.ruff.lint.pyupgrade]
 # Preserve types, even if a file imports `from __future__ import annotations`.
 keep-runtime-typing = true
@@ -78,3 +100,12 @@ sort = "-Cover"
 
 [tool.coverage.html]
 show_contexts = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "e2e: End-to-end tests that require Docker Compose stack (run separately with -m e2e)",
+]
+# Exclude E2E tests by default (override with: pytest --override-ini addopts= -m e2e)
+addopts = "-m 'not e2e'"
+testpaths = ["tests"]

@@ -5,7 +5,14 @@ import dotenv from "dotenv"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-dotenv.config({ path: path.join(__dirname, "../../.env") })
+// Load .env.test for Playwright tests, fallback to .env if not found
+const testEnvPath = path.join(__dirname, "../../.env.test")
+const defaultEnvPath = path.join(__dirname, "../../.env")
+dotenv.config({ path: testEnvPath })
+// Fallback to .env if .env.test doesn't provide the variables
+if (!process.env.FIRST_SUPERUSER) {
+  dotenv.config({ path: defaultEnvPath })
+}
 
 const { FIRST_SUPERUSER, FIRST_SUPERUSER_PASSWORD } = process.env
 

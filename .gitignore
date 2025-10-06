@@ -5,3 +5,62 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 .spec-workflow/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.pyc
+*.pyo
+.mypy_cache/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+
+# Environment files
+# Templates tracked in repo: .env, .env.example, .env.local.example, .env.production
+# Personal/machine-specific files (.env.local, .env.*.local) are ignored for security
+.env.local
+.env.*.local
+
+# Performance test results
+performance_results/
+
+# Reports
+reports/
+
+# Temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE
+.idea/
+*.iml
+*.code-workspace
